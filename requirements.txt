@@ -1,0 +1,12 @@
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+pydantic==2.11.4
+python-dotenv==1.1.0
+joblib==1.5.0
+scikit-learn==1.6.1
+sqlglot==26.16.4
+torch>=2.2.0
+transformers>=4.45.0
+sentencepiece>=0.2.0
+SQLAlchemy>=2.0,<3.0
+psycopg[binary]>=3.2,<4.0

@@ -1,0 +1,15 @@
+{
+    "backend":  "tokenizers",
+    "eos_token":  "\u003c/s\u003e",
+    "extra_ids":  100,
+    "is_local":  true,
+    "local_files_only":  false,
+    "max_length":  128,
+    "model_max_length":  1E+30,
+    "pad_token":  "\u003cpad\u003e",
+    "stride":  0,
+    "tokenizer_class":  "T5Tokenizer",
+    "truncation_side":  "right",
+    "truncation_strategy":  "longest_first",
+    "unk_token":  "\u003cunk\u003e"
+}

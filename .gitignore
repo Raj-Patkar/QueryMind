@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials/
+*_credentials.*
+*secret*
+
+# Python tooling / build output
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Logs and local databases
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+
+# IDE / operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local data and generated outputs
+data/
+datasets/
+outputs/
+runs/
+wandb/
+mlruns/
+*.csv
+*.parquet
+
+# Large model weights - keep T5 weights out of ordinary Git
+artifacts/**/model.safetensors
+artifacts/**/*-of-*.safetensors
+artifacts/**/pytorch_model.bin
+artifacts/**/*-of-*.bin
+artifacts/**/*.pt
+artifacts/**/*.pth
+artifacts/**/*.ckpt
+
+# Optional: uncomment if you also want to exclude the classifier artifact
+# artifacts/*.joblib
