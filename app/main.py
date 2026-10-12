@@ -10,6 +10,13 @@ from app.postgres_connector import (
     DatabaseConnectionError,
 )
 
+
+from app.postgres_connector import (
+    create_postgres_engine,
+    discover_schema,
+    execute_read_only,
+    DatabaseConnectionError,
+)
 load_dotenv()
 pipeline = QueryMindPipeline()
 
@@ -76,6 +83,7 @@ def test_database(request: SchemaRequest):
             engine.dispose()
 
 
+
 @app.post("/query")
 def query(request: QueryRequest):
     question = request.question.strip()
@@ -84,19 +92,41 @@ def query(request: QueryRequest):
 
     engine = None
     try:
-        engine = create_postgres_engine(request.connection_string.get_secret_value())
+        engine = create_postgres_engine(
+            request.connection_string.get_secret_value()
+        )
         schema = discover_schema(engine, request.schemas)
-        return pipeline.query(
+
+        result = pipeline.query(
             question=question,
             database="postgresql",
             conversation_history=request.conversation_history.strip() or "none",
             schema_text=schema["schema_text"],
             schema_metadata=schema,
         )
+
+        # Execute only SQL that passed schema validation.
+        if result.get("status") != "sql_ready_for_review":
+            return result
+
+        execution = execute_read_only(engine, result["sql"])
+
+        return {
+            **result,
+            "status": "executed",
+            "action": "sql_executed_read_only",
+            "message": "Validated SQL executed successfully.",
+            "execution": execution,
+        }
+
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except DatabaseConnectionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail="Database connection or query execution failed.",
+        ) from exc
     finally:
         if engine is not None:
             engine.dispose()
+

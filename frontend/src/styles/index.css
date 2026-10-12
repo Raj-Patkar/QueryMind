@@ -1,0 +1,37 @@
+:root {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  color: #182234;
+  background: #f5f8fc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --canvas: #f5f8fc;
+  --surface: #ffffff;
+  --surface-soft: #f7f9fc;
+  --surface-muted: #eff3f8;
+  --border: #e2e8f0;
+  --border-strong: #d3dce8;
+  --text: #182234;
+  --text-secondary: #64748b;
+  --text-muted: #94a3b8;
+  --accent: #5db0d5;
+  --accent-strong: #208dbd;
+  --accent-soft: #e8f6fc;
+  --navy: #0a1220;
+  --shadow-sm: 0 2px 7px rgba(22, 42, 69, .045);
+  --shadow-md: 0 14px 38px rgba(22, 42, 69, .09);
+  --radius-sm: 9px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --mono: 'DM Mono', Consolas, monospace;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { min-width: 320px; min-height: 100%; margin: 0; }
+body { min-height: 100vh; }
+button, input, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid rgba(93, 176, 213, .35); outline-offset: 2px; }
+::selection { background: rgba(93, 176, 213, .25); }

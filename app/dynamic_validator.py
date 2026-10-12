@@ -75,12 +75,18 @@ def validate_sql_against_schema(sql: str, schema_metadata: dict) -> dict:
                 f"Unknown table '{schema_name}.{table_name}' in the connected schema."
             )
 
+        
         if item is not None:
+            # Rewrite the table reference to its exact PostgreSQL name.
+            table.set("this", exp.to_identifier(item["table"], quoted=True))
+            table.set("db", exp.to_identifier(item["schema"]))
+
             used_tables.append(f'{item["schema"]}.{item["table"]}')
             referenced_table_items.append(item)
             alias = table.alias_or_name.lower()
             alias_map[alias] = item
             alias_map[table.name.lower()] = item
+
 
     columns_found = []
     seen_columns = set()
@@ -132,7 +138,7 @@ def validate_sql_against_schema(sql: str, schema_metadata: dict) -> dict:
         "status": status,
         "issues": issues,
         "warnings": warnings,
-        "normalized_sql": normalized,
+        "normalized_sql": parsed.sql(dialect="postgres"),
         "tables": sorted(set(used_tables)),
         "columns": columns_found,
     }
