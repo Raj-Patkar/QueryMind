@@ -126,7 +126,7 @@ def discover_schema(engine: Engine, schemas: list[str] | None = None) -> dict[st
                 for fk in fks
             ]
 
-            qualified = f"{schema_name}.{table_name}"
+            qualified = table_name
             tables.append({
                 "schema": schema_name,
                 "table": table_name,
