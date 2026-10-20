@@ -8,6 +8,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from app.dynamic_validator import validate_sql_against_schema
 from app.retrieval import SchemaRetriever
 from app.rewriter import QuestionRewriter
+from app.sql_fixes import choose_candidate, fix_string_literals
 from app.prompting import (
     build_classifier_schema_text,
     build_t5_prompt,
@@ -119,7 +120,8 @@ class QueryMindPipeline:
     def _token_len(self, text):
         return len(self.tokenizer(text, truncation=False)["input_ids"])
 
-    def _generate_sql(self, question, t5_schema, history_text):
+    def _generate_candidates(self, question, t5_schema, history_text):
+        """Beam search returning the top-N distinct SQL candidates (best first)."""
         prompt = build_t5_prompt(question, t5_schema, history_text)
         # The model was trained with max_length=512; anything longer is cut from the
         # END of the prompt (i.e. the conversation history goes first). Report it.
@@ -131,19 +133,24 @@ class QueryMindPipeline:
             truncation=True,
             max_length=512,
         ).to(self.device)
+        n_best = max(1, int(os.getenv("SQL_NBEST", "4")))
         with torch.no_grad():
             outputs = self.t5_model.generate(
                 **inputs,
                 max_new_tokens=128,
-                num_beams=4,
+                num_beams=max(4, n_best),
+                num_return_sequences=n_best,
                 early_stopping=True,
                 # The saved Experiment 3 config has use_cache=false, which makes
                 # generation far slower. The cache does not change the output.
                 use_cache=True,
             )
-        return self.tokenizer.decode(
-            outputs[0], skip_special_tokens=True
-        ).strip()
+        seen, candidates = set(), []
+        for seq in outputs:
+            text = self.tokenizer.decode(seq, skip_special_tokens=True).strip()
+            if text and text not in seen:
+                seen.add(text); candidates.append(text)
+        return candidates or [""]
 
     def query(
         self,
@@ -245,13 +252,22 @@ class QueryMindPipeline:
             schema_metadata, t5_question, t5_history, self._token_len
         )
         t5_schema = build_t5_schema_text(schema_metadata, self.last_tables)
-        sql = self._generate_sql(
+        candidates = self._generate_candidates(
             t5_question, t5_schema, history_for_t5(t5_history)
         )
         base["prompt_truncated"] = self.last_prompt_truncated
         base["tables_used"] = self.last_tables
         base["rewritten_question"] = t5_question if rewritten else None
-        validation = validate_sql_against_schema(sql, schema_metadata)
+        # T5 (trained on Spider) writes string values as "Physics"; PostgreSQL needs 'Physics'.
+        known_names = {t["table"] for t in schema_metadata["tables"]} | {
+            c["name"] for t in schema_metadata["tables"] for c in t["columns"]
+        }
+        candidates = [fix_string_literals(c, known_names) for c in candidates]
+        # Try every beam: prefer the first candidate that passes validation.
+        sql, validation, rank = choose_candidate(
+            candidates, lambda c: validate_sql_against_schema(c, schema_metadata)
+        )
+        base["sql_candidate_rank"] = rank
 
         if validation["status"] == "invalid":
             return {

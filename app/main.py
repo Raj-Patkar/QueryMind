@@ -57,6 +57,10 @@ def health():
         "api": "ok",
         "models_ready": pipeline.ready,
         "load_errors": pipeline.load_errors,
+        "retriever_ready": pipeline.retriever.ready,
+        "retriever_error": pipeline.retriever.error,
+        "rewriter_ready": pipeline.rewriter.ready,
+        "rewriter_error": pipeline.rewriter.error,
         "database_execution_enabled": False,
     }
 
