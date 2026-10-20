@@ -126,6 +126,9 @@ class QueryMindPipeline:
                 max_new_tokens=128,
                 num_beams=4,
                 early_stopping=True,
+                # The saved Experiment 3 config has use_cache=false, which makes
+                # generation far slower. The cache does not change the output.
+                use_cache=True,
             )
         return self.tokenizer.decode(
             outputs[0], skip_special_tokens=True
