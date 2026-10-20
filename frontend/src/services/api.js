@@ -33,8 +33,13 @@ export function askQuery({ question, connectionString, conversationHistory = [] 
     question,
     connection_string: connectionString,
     schemas: ['public'],
-    conversation_history: conversationHistory.length
-      ? conversationHistory.map((item) => `${item.role}: ${item.content}`).join('\n')
+    // The models were trained on earlier USER questions only (joined with " | ").
+    // Assistant replies are chat text the models never saw, so don't send them.
+    conversation_history: conversationHistory.some((item) => item.role === 'user')
+      ? conversationHistory
+          .filter((item) => item.role === 'user')
+          .map((item) => item.content)
+          .join(' | ')
       : 'none',
   })
 }
