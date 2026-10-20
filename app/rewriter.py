@@ -21,6 +21,23 @@ def build_rewriter_input(question: str, history_questions: list[str]) -> str:
     return f"rewrite as standalone question: {question.strip()} history: {hist}"
 
 
+def _load_tokenizer(path: str):
+    """Load the tokenizer; fall back to the raw SentencePiece file.
+
+    A tokenizer saved by a newer `transformers` (e.g. in Colab) can fail to load in an older
+    local install with "'list' object has no attribute 'keys'" (a config-format change).
+    The tokenizer itself is just spiece.model, so build it directly from that file.
+    """
+    try:
+        return AutoTokenizer.from_pretrained(path, local_files_only=True)
+    except Exception:
+        spiece = Path(path) / "spiece.model"
+        if not spiece.exists():
+            raise
+        from transformers import T5Tokenizer
+        return T5Tokenizer(str(spiece))
+
+
 class QuestionRewriter:
     def __init__(self):
         self.tokenizer = None
@@ -33,7 +50,7 @@ class QuestionRewriter:
         try:
             if not Path(path).exists():
                 raise FileNotFoundError(f"Rewriter directory not found: {path}")
-            self.tokenizer = AutoTokenizer.from_pretrained(path, local_files_only=True)
+            self.tokenizer = _load_tokenizer(path)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(path, local_files_only=True)
             self.model.to(device).eval()
             self.device = device
