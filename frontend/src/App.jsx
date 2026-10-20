@@ -103,6 +103,8 @@ export default function App() {
       const execution = response.execution
       const content = response.status === 'executed'
         ? `I ran your query successfully and found ${execution?.row_count ?? 0} row${execution?.row_count === 1 ? '' : 's'}. The SQL and complete result set are available in the query workspace below.`
+          + (response.rewritten_question ? ` I understood your question as: "${response.rewritten_question}".` : '')
+          + (response.fallback_used ? ' The top-ranked SQL returned no rows, so this is the next-best candidate; please check the SQL.' : '')
         : response.message || 'I could not complete this request.'
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'assistant', content, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), response, result: response.execution || null, sql: response.sql }])
     } catch (error) {

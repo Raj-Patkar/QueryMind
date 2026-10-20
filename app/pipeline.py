@@ -268,6 +268,16 @@ class QueryMindPipeline:
             candidates, lambda c: validate_sql_against_schema(c, schema_metadata)
         )
         base["sql_candidate_rank"] = rank
+        # Other candidates that also pass validation, best first: main.py falls back to them
+        # when the chosen query executes but returns no rows (e.g. filtered on the wrong column).
+        alternatives = []
+        for i, cand in enumerate(candidates):
+            if i == rank:
+                continue
+            alt = validate_sql_against_schema(cand, schema_metadata)
+            if alt["status"] == "valid":
+                alternatives.append(alt["normalized_sql"])
+        base["alternative_sqls"] = alternatives
 
         if validation["status"] == "invalid":
             return {

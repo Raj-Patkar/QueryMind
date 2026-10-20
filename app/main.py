@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -114,12 +115,32 @@ def query(request: QueryRequest):
             return result
 
         execution = execute_read_only(engine, result["sql"])
+        used_sql, fallback_note = result["sql"], None
+
+        # Execution-guided fallback: a query that is valid but returns no rows is often the
+        # model filtering on the wrong column. Try the next-best valid candidates.
+        if execution["row_count"] == 0 and os.getenv("EXEC_FALLBACK", "1") != "0":
+            for alt_sql in result.get("alternative_sqls", [])[:3]:
+                try:
+                    alt_exec = execute_read_only(engine, alt_sql)
+                except (DatabaseConnectionError, ValueError):
+                    continue
+                if alt_exec["row_count"] > 0:
+                    execution, used_sql = alt_exec, alt_sql
+                    fallback_note = (
+                        "The top-ranked query returned no rows, so the next-best candidate "
+                        "that returns data is shown. Please check the SQL."
+                    )
+                    break
 
         return {
             **result,
+            "sql": used_sql,
+            "original_sql": result["sql"] if fallback_note else None,
             "status": "executed",
             "action": "sql_executed_read_only",
-            "message": "Validated SQL executed successfully.",
+            "message": fallback_note or "Validated SQL executed successfully.",
+            "fallback_used": fallback_note is not None,
             "execution": execution,
         }
 

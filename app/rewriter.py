@@ -22,20 +22,26 @@ def build_rewriter_input(question: str, history_questions: list[str]) -> str:
 
 
 def _load_tokenizer(path: str):
-    """Load the tokenizer; fall back to the raw SentencePiece file.
+    """Load the tokenizer; fall back to the raw tokenizer files.
 
     A tokenizer saved by a newer `transformers` (e.g. in Colab) can fail to load in an older
-    local install with "'list' object has no attribute 'keys'" (a config-format change).
-    The tokenizer itself is just spiece.model, so build it directly from that file.
+    local install with "'list' object has no attribute 'keys'" (a tokenizer_config.json
+    format change: the "extra_special_tokens" entry). The tokenizer itself lives in
+    tokenizer.json (or spiece.model), so build it directly from that file and ignore the config.
     """
     try:
         return AutoTokenizer.from_pretrained(path, local_files_only=True)
     except Exception:
-        spiece = Path(path) / "spiece.model"
-        if not spiece.exists():
-            raise
-        from transformers import T5Tokenizer
-        return T5Tokenizer(str(spiece))
+        tok_json, spiece = Path(path) / "tokenizer.json", Path(path) / "spiece.model"
+        if tok_json.exists():
+            from transformers import PreTrainedTokenizerFast
+            return PreTrainedTokenizerFast(
+                tokenizer_file=str(tok_json), eos_token="</s>", unk_token="<unk>", pad_token="<pad>"
+            )
+        if spiece.exists():
+            from transformers import T5Tokenizer
+            return T5Tokenizer(str(spiece))
+        raise
 
 
 class QuestionRewriter:
