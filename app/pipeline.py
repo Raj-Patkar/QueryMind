@@ -6,6 +6,8 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 from app.dynamic_validator import validate_sql_against_schema
+from app.retrieval import SchemaRetriever
+from app.rewriter import QuestionRewriter
 from app.prompting import (
     build_classifier_schema_text,
     build_t5_prompt,
@@ -24,6 +26,9 @@ class QueryMindPipeline:
         self.device = "cpu"
         self.load_errors = []
         self.last_prompt_truncated = False
+        self.retriever = SchemaRetriever()
+        self.rewriter = QuestionRewriter()
+        self.last_tables = []
 
     def load(self):
         self.load_errors = []
@@ -65,6 +70,9 @@ class QueryMindPipeline:
             self.tokenizer = None
             self.t5_model = None
             self.load_errors.append(f"t5: {exc}")
+
+        self.retriever.load()  # optional: without it the full schema is used
+        self.rewriter.load(self.device)  # optional: without it follow-ups go to T5 as before
 
     @property
     def ready(self):
@@ -108,6 +116,9 @@ class QueryMindPipeline:
             "margin": margin,
         }
 
+    def _token_len(self, text):
+        return len(self.tokenizer(text, truncation=False)["input_ids"])
+
     def _generate_sql(self, question, t5_schema, history_text):
         prompt = build_t5_prompt(question, t5_schema, history_text)
         # The model was trained with max_length=512; anything longer is cut from the
@@ -126,6 +137,9 @@ class QueryMindPipeline:
                 max_new_tokens=128,
                 num_beams=4,
                 early_stopping=True,
+                # The saved Experiment 3 config has use_cache=false, which makes
+                # generation far slower. The cache does not change the output.
+                use_cache=True,
             )
         return self.tokenizer.decode(
             outputs[0], skip_special_tokens=True
@@ -161,7 +175,6 @@ class QueryMindPipeline:
         # (see app/prompting.py); the generic schema_text is only used for display.
         history_questions = normalize_history(conversation_history)
         classifier_schema = build_classifier_schema_text(schema_metadata)
-        t5_schema = build_t5_schema_text(schema_metadata)
 
         route = self._classify(
             question,
@@ -222,10 +235,22 @@ class QueryMindPipeline:
                 "sql_validation": None,
             }
 
+        # Follow-ups are rewritten into a standalone question first (first turns are left alone).
+        t5_question, rewritten = self.rewriter.rewrite(question, history_questions)
+        t5_history = [] if rewritten else history_questions
+
+        # Keep only the tables relevant to this question (+ conversation) so the prompt
+        # fits in 512 tokens and the history is not truncated away.
+        self.last_tables = self.retriever.select_tables(
+            schema_metadata, t5_question, t5_history, self._token_len
+        )
+        t5_schema = build_t5_schema_text(schema_metadata, self.last_tables)
         sql = self._generate_sql(
-            question, t5_schema, history_for_t5(history_questions)
+            t5_question, t5_schema, history_for_t5(t5_history)
         )
         base["prompt_truncated"] = self.last_prompt_truncated
+        base["tables_used"] = self.last_tables
+        base["rewritten_question"] = t5_question if rewritten else None
         validation = validate_sql_against_schema(sql, schema_metadata)
 
         if validation["status"] == "invalid":

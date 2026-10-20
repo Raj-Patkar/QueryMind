@@ -37,10 +37,21 @@ def spider_type(pg_type: str) -> str:
     return "others"
 
 
-def build_t5_schema_text(schema_metadata: dict) -> str:
+def _fk_pairs(table: dict):
+    for fk in table.get("foreign_keys") or []:
+        for local, remote in zip(fk.get("columns") or [], fk.get("referred_columns") or []):
+            yield local, fk["referred_table"], remote
+
+
+def build_t5_schema_text(schema_metadata: dict, table_names: list[str] | None = None) -> str:
+    """Training-format schema. With `table_names`, only those tables are included and
+    foreign keys are kept only when BOTH ends are included (as in Step 4a)."""
+    keep = None if table_names is None else set(table_names)
     tables = []
     fk_text = []
     for table in schema_metadata["tables"]:
+        if keep is not None and table["table"] not in keep:
+            continue
         pk = set(table.get("primary_key") or [])
         cols = []
         for col in table["columns"]:
@@ -48,14 +59,34 @@ def build_t5_schema_text(schema_metadata: dict) -> str:
             cols.append(f'{col["name"]}({spider_type(col["type"])}){pk_text}')
         tables.append(f'TABLE {table["table"]}: ' + ", ".join(cols))
 
-        for fk in table.get("foreign_keys") or []:
-            for local, remote in zip(fk.get("columns") or [], fk.get("referred_columns") or []):
-                fk_text.append(f'{table["table"]}.{local} = {fk["referred_table"]}.{remote}')
+        for local, ref_table, remote in _fk_pairs(table):
+            if keep is None or ref_table in keep:
+                fk_text.append(f'{table["table"]}.{local} = {ref_table}.{remote}')
 
     text = " | ".join(tables)
     if fk_text:
         text += " | FOREIGN KEYS: " + "; ".join(fk_text)
     return text
+
+
+def build_table_description(schema_metadata: dict, table: dict) -> str:
+    """Text embedded by the retriever (same layout as the Experiment 2 notebook)."""
+    pk = set(table.get("primary_key") or [])
+    cols = [
+        f'{c["name"]} ({spider_type(c["type"])})'
+        + (" PRIMARY KEY" if (c["name"] in pk or c.get("primary_key")) else "")
+        for c in table["columns"]
+    ]
+    desc = f'TABLE {table["table"]}: ' + ", ".join(cols)
+    for local, ref_table, remote in _fk_pairs(table):
+        desc += f' | FOREIGN KEY: {table["table"]}.{local} = {ref_table}.{remote}'
+    for other in schema_metadata["tables"]:
+        if other["table"] == table["table"]:
+            continue
+        for local, ref_table, remote in _fk_pairs(other):
+            if ref_table == table["table"]:
+                desc += f' | FOREIGN KEY: {other["table"]}.{local} = {ref_table}.{remote}'
+    return desc
 
 
 def build_classifier_schema_text(schema_metadata: dict) -> str:
