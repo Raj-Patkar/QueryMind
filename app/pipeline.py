@@ -6,6 +6,14 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 from app.dynamic_validator import validate_sql_against_schema
+from app.prompting import (
+    build_classifier_schema_text,
+    build_t5_prompt,
+    build_t5_schema_text,
+    history_for_classifier,
+    history_for_t5,
+    normalize_history,
+)
 
 
 class QueryMindPipeline:
@@ -15,6 +23,7 @@ class QueryMindPipeline:
         self.t5_model = None
         self.device = "cpu"
         self.load_errors = []
+        self.last_prompt_truncated = False
 
     def load(self):
         self.load_errors = []
@@ -99,13 +108,12 @@ class QueryMindPipeline:
             "margin": margin,
         }
 
-    def _generate_sql(self, question, schema, history):
-        prompt = (
-            "translate conversational English to SQL: "
-            f"Question: {question} "
-            f"Schema: {schema} "
-            f"Conversation history: {history if history else 'none'}"
-        )
+    def _generate_sql(self, question, t5_schema, history_text):
+        prompt = build_t5_prompt(question, t5_schema, history_text)
+        # The model was trained with max_length=512; anything longer is cut from the
+        # END of the prompt (i.e. the conversation history goes first). Report it.
+        full_len = len(self.tokenizer(prompt, truncation=False)["input_ids"])
+        self.last_prompt_truncated = full_len > 512
         inputs = self.tokenizer(
             prompt,
             return_tensors="pt",
@@ -149,8 +157,17 @@ class QueryMindPipeline:
                 "sql_validation": None,
             }
 
+        # Rebuild both prompts from the metadata so they match the TRAINING formats
+        # (see app/prompting.py); the generic schema_text is only used for display.
+        history_questions = normalize_history(conversation_history)
+        classifier_schema = build_classifier_schema_text(schema_metadata)
+        t5_schema = build_t5_schema_text(schema_metadata)
+
         route = self._classify(
-            question, schema_text, database, conversation_history
+            question,
+            classifier_schema,
+            database,
+            history_for_classifier(history_questions),
         )
         min_prob = float(os.getenv("MIN_TOP_PROBABILITY", "0.65"))
         min_margin = float(os.getenv("MIN_PROBABILITY_MARGIN", "0.00"))
@@ -205,7 +222,10 @@ class QueryMindPipeline:
                 "sql_validation": None,
             }
 
-        sql = self._generate_sql(question, schema_text, conversation_history)
+        sql = self._generate_sql(
+            question, t5_schema, history_for_t5(history_questions)
+        )
+        base["prompt_truncated"] = self.last_prompt_truncated
         validation = validate_sql_against_schema(sql, schema_metadata)
 
         if validation["status"] == "invalid":
