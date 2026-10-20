@@ -7,6 +7,7 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 from app.dynamic_validator import validate_sql_against_schema
 from app.retrieval import SchemaRetriever
+from app.rewriter import QuestionRewriter
 from app.prompting import (
     build_classifier_schema_text,
     build_t5_prompt,
@@ -26,6 +27,7 @@ class QueryMindPipeline:
         self.load_errors = []
         self.last_prompt_truncated = False
         self.retriever = SchemaRetriever()
+        self.rewriter = QuestionRewriter()
         self.last_tables = []
 
     def load(self):
@@ -70,6 +72,7 @@ class QueryMindPipeline:
             self.load_errors.append(f"t5: {exc}")
 
         self.retriever.load()  # optional: without it the full schema is used
+        self.rewriter.load(self.device)  # optional: without it follow-ups go to T5 as before
 
     @property
     def ready(self):
@@ -232,17 +235,22 @@ class QueryMindPipeline:
                 "sql_validation": None,
             }
 
-        # Keep only the tables relevant to this question + conversation so the prompt
+        # Follow-ups are rewritten into a standalone question first (first turns are left alone).
+        t5_question, rewritten = self.rewriter.rewrite(question, history_questions)
+        t5_history = [] if rewritten else history_questions
+
+        # Keep only the tables relevant to this question (+ conversation) so the prompt
         # fits in 512 tokens and the history is not truncated away.
         self.last_tables = self.retriever.select_tables(
-            schema_metadata, question, history_questions, self._token_len
+            schema_metadata, t5_question, t5_history, self._token_len
         )
         t5_schema = build_t5_schema_text(schema_metadata, self.last_tables)
         sql = self._generate_sql(
-            question, t5_schema, history_for_t5(history_questions)
+            t5_question, t5_schema, history_for_t5(t5_history)
         )
         base["prompt_truncated"] = self.last_prompt_truncated
         base["tables_used"] = self.last_tables
+        base["rewritten_question"] = t5_question if rewritten else None
         validation = validate_sql_against_schema(sql, schema_metadata)
 
         if validation["status"] == "invalid":
